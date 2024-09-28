@@ -2,6 +2,8 @@
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 
 uint8_t module1Address[] = {0xFC, 0xE8, 0xC0, 0x7C, 0xCC, 0x10};
 uint8_t module2Address[] = {0xAC, 0x15, 0x18, 0xC0, 0x02, 0x8C};
@@ -69,6 +71,10 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Serial.println(myModuleData.outfluxOpen);
   Serial.println();
 }
+const char *ssid = "ESP32_AP";
+// Create an AsyncWebServer object on port 80
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
 
 void setup() {
   // Set up Serial Monitor
@@ -102,6 +108,29 @@ void setup() {
       Serial.println("Failed to add peer 2");
       return;
   }
+
+  WiFi.mode(WIFI_AP);
+  // Wait for connection
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(1000);
+        Serial.println("Connecting to WiFi...");
+    }
+
+    Serial.println("Connected to WiFi");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+
+    // Handle WebSocket events
+    // ws.onEvent(onWsEvent);
+    // server.addHandler(&ws);
+
+    // Handle HTTP requests
+    server.on("/", HTTP_GET, handleRootRequest);
+    server.on("/water-module", HTTP_POST, handleWaterPost);
+    server.on("/outflux-module", HTTP_POST, handleOutfluxPost); // for demo and testing
+
+    // Start server
+    server.begin();
 }
  void sendData(uint8_t *address, bool influx, bool outflux) {
   myMainData.influxOpen = influx;
@@ -115,3 +144,56 @@ void loop() {
   delay(2000);
 }
 
+void handleRootRequest(AsyncWebServerRequest *request) {
+    String responseHtml = "<h1>Hello, World!</h1>";
+    request->send(200, "text/html", responseHtml);
+}
+
+// Function to handle POST requests to /water-module
+// Web Dashboard will tell main esp32 what module to initiate watering
+// have a blocking bool to make sure that only one module can be filled at a time (for simplicity)
+void handleWaterPost(AsyncWebServerRequest *request) {
+    // Check if the request has a body (if required)
+    if (request->hasParam("data", true)) {
+        String data = request->getParam("data", true)->value();
+        Serial.printf("Water Module Data Received: %s\n", data.c_str());
+
+        // TODO: Process the received data as needed
+    }
+
+    // Send a response back to the client
+    request->send(200, "text/plain", "Water module data received");
+}
+
+// Function to handle POST requests to /outflux-module
+// Web Dashboard will tell main esp32 what module to release water from
+// This is for testing
+void handleOutfluxPost(AsyncWebServerRequest *request) {
+    // Check if the request has a body (if required)
+    if (request->hasParam("data", true)) {
+        String data = request->getParam("data", true)->value();
+        Serial.printf("Outflux Module Data Received: %s\n", data.c_str());
+
+        // TODO: Process the received data as needed
+    }
+
+    // Send a response back to the client
+    request->send(200, "text/plain", "Outflux module data received");
+}
+
+// WebSocket event handler
+// void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
+//                AwsEventType type, void *arg, uint8_t *data, size_t len) {
+//     if (type == WS_EVT_CONNECT) {
+//         Serial.printf("Client connected: %u\n", client->id());
+//     } else if (type == WS_EVT_DISCONNECT) {
+//         Serial.printf("Client disconnected: %u\n", client->id());
+//     } else if (type == WS_EVT_DATA) {
+//         // Handle incoming data from the web dashboard
+//         String message = "";
+//         for (size_t i = 0; i < len; i++) {
+//             message += (char)data[i];
+//         }
+//         Serial.printf("Received message: %s\n", message.c_str());
+//     }
+// }
