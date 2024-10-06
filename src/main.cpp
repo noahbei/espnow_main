@@ -81,6 +81,8 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Serial.print("influx: ");
   Serial.println(myModuleData.outfluxOpen);
   Serial.println();
+
+
 }
 const char *ssid = "ESP32_AP";
 const char *password = "12345678";
@@ -169,38 +171,13 @@ void setup() {
     // Start server
     server.begin();
 }
+
  void sendData(uint8_t *address, bool influx, bool outflux) {
   myMainData.influxOpen = influx;
   myMainData.outfluxOpen = outflux;
   esp_now_send(address, (uint8_t *) &myMainData, sizeof(myMainData));
 }
-// void loop() {
-//   sendData(module1Address, 1, 1);
-//   delay(2000);
-//   sendData(module2Address, 1, 0);
-//   delay(2000);
-// }
-/*
-unsigned long previousMillis1 = 0;
-unsigned long previousMillis2 = 0;
-const long interval1 = 2000; // Interval for module1 in milliseconds
-const long interval2 = 2000; // Interval for module2 in milliseconds
-void loop() {
-  unsigned long currentMillis = millis();
 
-  // Check if it's time to send data to module1
-  if (currentMillis - previousMillis1 >= interval1) {
-    previousMillis1 = currentMillis;
-    sendData(module1Address, 1, 1);
-  }
-
-  // Check if it's time to send data to module2
-  if (currentMillis - previousMillis2 >= interval2) {
-    previousMillis2 = currentMillis;
-    sendData(module2Address, 1, 0);
-  }
-}
-*/
 void loop() {
   // Check if 500 milliseconds have passed since actionTriggered1
   if (millis() - actionTriggered1 >= interval && actionTriggered1 != 0) {
