@@ -4,9 +4,20 @@
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+//#include "main.h"
+void sendData(uint8_t *address, bool influx, bool outflux);
+void handleRootRequest(AsyncWebServerRequest *request);
+void handleWaterPost(AsyncWebServerRequest *request);
+void handleOutfluxPost(AsyncWebServerRequest *request);
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
 
 uint8_t module1Address[] = {0xFC, 0xE8, 0xC0, 0x7C, 0xCC, 0x10};
 uint8_t module2Address[] = {0xAC, 0x15, 0x18, 0xC0, 0x02, 0x8C};
+
+bool myInfluxOpen1 = false;
+bool myOutfluxOpen1 = false;
+bool myInfluxOpen2 = false;
+bool myOutfluxOpen2 = false;
 
 typedef struct struct_module_message {
   // module number
@@ -72,6 +83,10 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Serial.println();
 }
 const char *ssid = "ESP32_AP";
+const char *password = "12345678";
+
+const int mosPin = 4;
+
 // Create an AsyncWebServer object on port 80
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
@@ -80,8 +95,18 @@ void setup() {
   // Set up Serial Monitor
   Serial.begin(115200);
   
+  // Set up pump pinss
+  pinMode(mosPin, OUTPUT);
+  digitalWrite(mosPin, LOW); // Start with pump off
+
   // Set ESP32 as a Wi-Fi Station
-  WiFi.mode(WIFI_STA);
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(ssid, password);
+
+  // Print the IP address
+  IPAddress IP = WiFi.softAPIP();
+  Serial.print("AP IP address: ");
+  Serial.println(IP);
 
   // Initilize ESP-NOW
   if (esp_now_init() != ESP_OK) {
@@ -109,26 +134,38 @@ void setup() {
       return;
   }
 
-  WiFi.mode(WIFI_AP);
-  // Wait for connection
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(1000);
-        Serial.println("Connecting to WiFi...");
-    }
-
-    Serial.println("Connected to WiFi");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-
     // Handle WebSocket events
     // ws.onEvent(onWsEvent);
     // server.addHandler(&ws);
 
     // Handle HTTP requests
     server.on("/", HTTP_GET, handleRootRequest);
-    server.on("/water-module", HTTP_POST, handleWaterPost);
-    server.on("/outflux-module", HTTP_POST, handleOutfluxPost); // for demo and testing
+    server.on("/water-module-2", HTTP_GET, handleWaterGet2);
+    server.on("/outflux-module-2", HTTP_GET, handleOutfluxGet2); // for demo and testing
+    server.on("/water-module-1", HTTP_GET, handleWaterGet1);
+    server.on("/outflux-module-1", HTTP_GET, handleOutfluxGet1); // for demo and testing
 
+    // Define the route to turn the pump on
+    server.on("/pump/on", HTTP_GET, [](AsyncWebServerRequest *request) {
+    digitalWrite(mosPin, HIGH);
+      request->send(200, "text/plain", "Pump turned on");
+    });
+
+    // Define the route to turn the pump off
+    server.on("/pump/off", HTTP_GET, [](AsyncWebServerRequest *request) {
+      digitalWrite(mosPin, LOW);
+      request->send(200, "text/plain", "Pump turned off");
+    });
+
+    server.on("/m1i", HTTP_GET, [](AsyncWebServerRequest *request) {
+      sendData(module1Address, 1, 0);
+      request->send(200, "text/plain", "module 2 influx opened");
+    });
+
+    server.on("/m1o", HTTP_GET, [](AsyncWebServerRequest *request) {
+      sendData(module1Address, 0, 1);
+      request->send(200, "text/plain", "module 2 outflux opened");
+    });
     // Start server
     server.begin();
 }
@@ -137,50 +174,84 @@ void setup() {
   myMainData.outfluxOpen = outflux;
   esp_now_send(address, (uint8_t *) &myMainData, sizeof(myMainData));
 }
+// void loop() {
+//   sendData(module1Address, 1, 1);
+//   delay(2000);
+//   sendData(module2Address, 1, 0);
+//   delay(2000);
+// }
+/*
+unsigned long previousMillis1 = 0;
+unsigned long previousMillis2 = 0;
+const long interval1 = 2000; // Interval for module1 in milliseconds
+const long interval2 = 2000; // Interval for module2 in milliseconds
 void loop() {
-  sendData(module1Address, 1, 1);
-  delay(2000);
-  sendData(module2Address, 1, 0);
-  delay(2000);
+  unsigned long currentMillis = millis();
+
+  // Check if it's time to send data to module1
+  if (currentMillis - previousMillis1 >= interval1) {
+    previousMillis1 = currentMillis;
+    sendData(module1Address, 1, 1);
+  }
+
+  // Check if it's time to send data to module2
+  if (currentMillis - previousMillis2 >= interval2) {
+    previousMillis2 = currentMillis;
+    sendData(module2Address, 1, 0);
+  }
+}
+*/
+void loop() {
+// Check if 500 milliseconds have passed since actionTriggered1
+  if (millis() - actionTriggered1 >= interval && actionTriggered1 != 0) {
+    digitalWrite(mosPin, LOW);
+    actionTriggered1 = 0; // Reset the trigger time to avoid repeated actions
+    Serial.println("Water module 1 action completed, MOSFET set to LOW");
+    myInfluxOpen1 = 0;
+  }
+
+  // Check if 500 milliseconds have passed since actionTriggered2
+  if (millis() - actionTriggered2 >= interval && actionTriggered2 != 0) {
+    digitalWrite(mosPin, LOW);
+    actionTriggered2 = 0; // Reset the trigger time to avoid repeated actions
+    Serial.println("Water module 2 action completed, MOSFET set to LOW");
+    myInfluxOpen2 = 0;
+  }
 }
 
 void handleRootRequest(AsyncWebServerRequest *request) {
     String responseHtml = "<h1>Hello, World!</h1>";
     request->send(200, "text/html", responseHtml);
 }
-
-// Function to handle POST requests to /water-module
-// Web Dashboard will tell main esp32 what module to initiate watering
-// have a blocking bool to make sure that only one module can be filled at a time (for simplicity)
-void handleWaterPost(AsyncWebServerRequest *request) {
-    // Check if the request has a body (if required)
-    if (request->hasParam("data", true)) {
-        String data = request->getParam("data", true)->value();
-        Serial.printf("Water Module Data Received: %s\n", data.c_str());
-
-        // TODO: Process the received data as needed
-    }
-
-    // Send a response back to the client
-    request->send(200, "text/plain", "Water module data received");
+unsigned long actionTriggered1;
+unsigned long actionTriggered2;
+const unsigned long interval = 500;
+void handleWaterGet1(AsyncWebServerRequest *request) {
+  myInfluxOpen1 = 1;
+  sendData(module1Address, myInfluxOpen1, myOutfluxOpen1);
+  digitalWrite(mosPin, HIGH);
+  actionTriggered1 = millis();
+  request->send(200, "text/plain", "Water module 1 action triggered");
 }
 
-// Function to handle POST requests to /outflux-module
-// Web Dashboard will tell main esp32 what module to release water from
-// This is for testing
-void handleOutfluxPost(AsyncWebServerRequest *request) {
-    // Check if the request has a body (if required)
-    if (request->hasParam("data", true)) {
-        String data = request->getParam("data", true)->value();
-        Serial.printf("Outflux Module Data Received: %s\n", data.c_str());
-
-        // TODO: Process the received data as needed
-    }
-
-    // Send a response back to the client
-    request->send(200, "text/plain", "Outflux module data received");
+void handleOutfluxGet1(AsyncWebServerRequest *request) {
+  myOutfluxOpen1 = 1;
+  sendData(module2Address, myInfluxOpen2, myOutfluxOpen2);
+  request->send(200, "text/plain", "Outflux module 1 action triggered");
+  need to have another tracker for this action bing triggered.
 }
 
+void handleWaterGet2(AsyncWebServerRequest *request) {
+  myInfluxOpen2 = 1;
+  sendData(module2Address, myInfluxOpen2, myOutfluxOpen2);
+  digitalWrite(mosPin, HIGH);
+  actionTriggered2 = millis();
+  request->send(200, "text/plain", "Water module 2 action triggered");
+}
+void handleOutfluxGet2(AsyncWebServerRequest *request) {
+
+  request->send(200, "text/plain", "Outflux module 2 action triggered");
+}
 // WebSocket event handler
 // void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
 //                AwsEventType type, void *arg, uint8_t *data, size_t len) {
