@@ -5,12 +5,7 @@
 #include <AsyncTCP.h>
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
-//#include "main.h"
-void sendData(uint8_t *address, bool influx, bool outflux);
-void handleRootRequest(AsyncWebServerRequest *request);
-void handleWaterPost(AsyncWebServerRequest *request);
-void handleOutfluxPost(AsyncWebServerRequest *request);
-void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
+#include "main.h"
 
 uint8_t module1Address[] = {0xFC, 0xE8, 0xC0, 0x7C, 0xCC, 0x10};
 uint8_t module2Address[] = {0xAC, 0x15, 0x18, 0xC0, 0x02, 0x8C};
@@ -19,6 +14,13 @@ bool myInfluxOpen1 = false;
 bool myOutfluxOpen1 = false;
 bool myInfluxOpen2 = false;
 bool myOutfluxOpen2 = false;
+
+unsigned long actionTriggered1;
+unsigned long actionTriggered2;
+unsigned long outfluxTriggered1;
+unsigned long outfluxTriggered2;
+const unsigned long interval = 500; // 500 milliseconds
+const unsigned long outfluxInterval = 6000; // 6000 milliseconds (6 seconds)
 
 typedef struct struct_module_message {
   // module number
@@ -45,59 +47,6 @@ main_message myMainData;
 // Peer info
 esp_now_peer_info_t peerInfo;
  
-// Callback function called when data is sent
-void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  Serial.print("\r\nLast Packet Send Status:\t");
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
-}
-
-// Callback function executed when data is received
-// update local variables with the flow rate and stuff so we can do stuff with it
-void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
-  memcpy(&myModuleData, incomingData, sizeof(myModuleData));
-  Serial.println("ON RECEIVE");
-  // Print the MAC address of the sender
-  Serial.print("MAC Address: ");
-  for (int i = 0; i < 6; i++) {
-    if (mac[i] < 16) {
-      Serial.print("0");
-    }
-    Serial.print(mac[i], HEX);
-    if (i < 5) {
-      Serial.print(":");
-    }
-  }
-  Serial.println();
-
-  Serial.print("Data received: ");
-  Serial.println(len);
-  Serial.print("module number: ");
-  Serial.println(myModuleData.module);
-  Serial.print("Flow rate: ");
-  Serial.println(myModuleData.flowRate);
-  Serial.print("volume: ");
-  Serial.println(myModuleData.totalMilliLitres);
-  Serial.print("influx: ");
-  Serial.println(myModuleData.influxOpen);
-  Serial.print("influx: ");
-  Serial.println(myModuleData.outfluxOpen);
-  Serial.println();
-
-  // Create a JSON object with the data
-  StaticJsonDocument<200> jsonDoc;
-  jsonDoc["module"] = myModuleData.module;
-  jsonDoc["flowRate"] = myModuleData.flowRate;
-  jsonDoc["totalMilliLitres"] = myModuleData.totalMilliLitres;
-  jsonDoc["influxOpen"] = myModuleData.influxOpen;
-  jsonDoc["outfluxOpen"] = myModuleData.outfluxOpen;
-
-  // Serialize JSON to string
-  String jsonString;
-  serializeJson(jsonDoc, jsonString);
-
-  // Send the data to all WebSocket clients
-  ws.textAll(jsonString);
-}
 const char *ssid = "ESP32_AP";
 const char *password = "12345678";
 
@@ -186,11 +135,7 @@ void setup() {
     server.begin();
 }
 
- void sendData(uint8_t *address, bool influx, bool outflux) {
-  myMainData.influxOpen = influx;
-  myMainData.outfluxOpen = outflux;
-  esp_now_send(address, (uint8_t *) &myMainData, sizeof(myMainData));
-}
+
 
 void loop() {
   // Check if 500 milliseconds have passed since actionTriggered1
@@ -230,13 +175,6 @@ void handleRootRequest(AsyncWebServerRequest *request) {
   String responseHtml = "<h1>Hello, World!</h1>";
   request->send(200, "text/html", responseHtml);
 }
-
-unsigned long actionTriggered1;
-unsigned long actionTriggered2;
-unsigned long outfluxTriggered1;
-unsigned long outfluxTriggered2;
-const unsigned long interval = 500; // 500 milliseconds
-const unsigned long outfluxInterval = 6000; // 6000 milliseconds (6 seconds)
 
 void handleWaterGet1(AsyncWebServerRequest *request) {
   myInfluxOpen1 = 1;
@@ -290,4 +228,64 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
   } else if (type == WS_EVT_DISCONNECT) {
     Serial.println("WebSocket client disconnected");
   }
+}
+
+// Callback function called when data is sent
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  Serial.print("\r\nLast Packet Send Status:\t");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
+
+// Callback function executed when data is received
+// update local variables with the flow rate and stuff so we can do stuff with it
+void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  memcpy(&myModuleData, incomingData, sizeof(myModuleData));
+  Serial.println("ON RECEIVE");
+  // Print the MAC address of the sender
+  Serial.print("MAC Address: ");
+  for (int i = 0; i < 6; i++) {
+    if (mac[i] < 16) {
+      Serial.print("0");
+    }
+    Serial.print(mac[i], HEX);
+    if (i < 5) {
+      Serial.print(":");
+    }
+  }
+  Serial.println();
+
+  Serial.print("Data received: ");
+  Serial.println(len);
+  Serial.print("module number: ");
+  Serial.println(myModuleData.module);
+  Serial.print("Flow rate: ");
+  Serial.println(myModuleData.flowRate);
+  Serial.print("volume: ");
+  Serial.println(myModuleData.totalMilliLitres);
+  Serial.print("influx: ");
+  Serial.println(myModuleData.influxOpen);
+  Serial.print("influx: ");
+  Serial.println(myModuleData.outfluxOpen);
+  Serial.println();
+
+  // Create a JSON object with the data
+  StaticJsonDocument<200> jsonDoc;
+  jsonDoc["module"] = myModuleData.module;
+  jsonDoc["flowRate"] = myModuleData.flowRate;
+  jsonDoc["totalMilliLitres"] = myModuleData.totalMilliLitres;
+  jsonDoc["influxOpen"] = myModuleData.influxOpen;
+  jsonDoc["outfluxOpen"] = myModuleData.outfluxOpen;
+
+  // Serialize JSON to string
+  String jsonString;
+  serializeJson(jsonDoc, jsonString);
+
+  // Send the data to all WebSocket clients
+  ws.textAll(jsonString);
+}
+
+void sendData(uint8_t *address, bool influx, bool outflux) {
+  myMainData.influxOpen = influx;
+  myMainData.outfluxOpen = outflux;
+  esp_now_send(address, (uint8_t *) &myMainData, sizeof(myMainData));
 }
