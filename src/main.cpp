@@ -202,7 +202,7 @@ void loop() {
 }
 */
 void loop() {
-// Check if 500 milliseconds have passed since actionTriggered1
+  // Check if 500 milliseconds have passed since actionTriggered1
   if (millis() - actionTriggered1 >= interval && actionTriggered1 != 0) {
     digitalWrite(mosPin, LOW);
     actionTriggered1 = 0; // Reset the trigger time to avoid repeated actions
@@ -217,15 +217,36 @@ void loop() {
     Serial.println("Water module 2 action completed, MOSFET set to LOW");
     myInfluxOpen2 = 0;
   }
+
+  // Check if 6 seconds have passed since outfluxTriggered1
+  if (millis() - outfluxTriggered1 >= outfluxInterval && outfluxTriggered1 != 0) {
+    sendData(module1Address, myInfluxOpen1, 0);
+    outfluxTriggered1 = 0; // Reset the trigger time to avoid repeated actions
+    Serial.println("Outflux module 1 action completed, valve closed");
+    myOutfluxOpen1 = 0;
+  }
+
+  // Check if 6 seconds have passed since outfluxTriggered2
+  if (millis() - outfluxTriggered2 >= outfluxInterval && outfluxTriggered2 != 0) {
+    sendData(module2Address, myInfluxOpen2, 0);
+    outfluxTriggered2 = 0; // Reset the trigger time to avoid repeated actions
+    Serial.println("Outflux module 2 action completed, valve closed");
+    myOutfluxOpen2 = 0;
+  }
 }
 
 void handleRootRequest(AsyncWebServerRequest *request) {
-    String responseHtml = "<h1>Hello, World!</h1>";
-    request->send(200, "text/html", responseHtml);
+  String responseHtml = "<h1>Hello, World!</h1>";
+  request->send(200, "text/html", responseHtml);
 }
+
 unsigned long actionTriggered1;
 unsigned long actionTriggered2;
-const unsigned long interval = 500;
+unsigned long outfluxTriggered1;
+unsigned long outfluxTriggered2;
+const unsigned long interval = 500; // 500 milliseconds
+const unsigned long outfluxInterval = 6000; // 6000 milliseconds (6 seconds)
+
 void handleWaterGet1(AsyncWebServerRequest *request) {
   myInfluxOpen1 = 1;
   sendData(module1Address, myInfluxOpen1, myOutfluxOpen1);
@@ -236,9 +257,9 @@ void handleWaterGet1(AsyncWebServerRequest *request) {
 
 void handleOutfluxGet1(AsyncWebServerRequest *request) {
   myOutfluxOpen1 = 1;
-  sendData(module2Address, myInfluxOpen2, myOutfluxOpen2);
+  sendData(module1Address, myInfluxOpen1, myOutfluxOpen1);
+  outfluxTriggered1 = millis();
   request->send(200, "text/plain", "Outflux module 1 action triggered");
-  need to have another tracker for this action bing triggered.
 }
 
 void handleWaterGet2(AsyncWebServerRequest *request) {
@@ -248,8 +269,11 @@ void handleWaterGet2(AsyncWebServerRequest *request) {
   actionTriggered2 = millis();
   request->send(200, "text/plain", "Water module 2 action triggered");
 }
-void handleOutfluxGet2(AsyncWebServerRequest *request) {
 
+void handleOutfluxGet2(AsyncWebServerRequest *request) {
+  myOutfluxOpen2 = 1;
+  sendData(module2Address, myInfluxOpen2, myOutfluxOpen2);
+  outfluxTriggered2 = millis();
   request->send(200, "text/plain", "Outflux module 2 action triggered");
 }
 // WebSocket event handler
