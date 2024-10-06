@@ -3,6 +3,7 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include <AsyncTCP.h>
+#include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
 //#include "main.h"
 void sendData(uint8_t *address, bool influx, bool outflux);
@@ -82,7 +83,20 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Serial.println(myModuleData.outfluxOpen);
   Serial.println();
 
+  // Create a JSON object with the data
+  StaticJsonDocument<200> jsonDoc;
+  jsonDoc["module"] = myModuleData.module;
+  jsonDoc["flowRate"] = myModuleData.flowRate;
+  jsonDoc["totalMilliLitres"] = myModuleData.totalMilliLitres;
+  jsonDoc["influxOpen"] = myModuleData.influxOpen;
+  jsonDoc["outfluxOpen"] = myModuleData.outfluxOpen;
 
+  // Serialize JSON to string
+  String jsonString;
+  serializeJson(jsonDoc, jsonString);
+
+  // Send the data to all WebSocket clients
+  ws.textAll(jsonString);
 }
 const char *ssid = "ESP32_AP";
 const char *password = "12345678";
@@ -137,8 +151,8 @@ void setup() {
   }
 
     // Handle WebSocket events
-    // ws.onEvent(onWsEvent);
-    // server.addHandler(&ws);
+    ws.onEvent(onWsEvent);
+    server.addHandler(&ws);
 
     // Handle HTTP requests
     server.on("/", HTTP_GET, handleRootRequest);
@@ -269,3 +283,11 @@ void handleOutfluxGet2(AsyncWebServerRequest *request) {
 //         Serial.printf("Received message: %s\n", message.c_str());
 //     }
 // }
+// simplified version
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+  if (type == WS_EVT_CONNECT) {
+    Serial.println("WebSocket client connected");
+  } else if (type == WS_EVT_DISCONNECT) {
+    Serial.println("WebSocket client disconnected");
+  }
+}
